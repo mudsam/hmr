@@ -16,9 +16,9 @@
 }
 \usage{
 hmr(input, output, map = identity, reduce = identity, job.name,
-    aux, formatter, packages = loadedNamespaces(), reducers,
+    aux, formatter, packages, reducers,
     remote, wait=TRUE, hadoop.conf, hadoop.opt, R="R",
-    verbose = TRUE, persistent = FALSE)
+    verbose = TRUE, persistent = FALSE, distributePackages = FALSE)
 hpath(path)
 hinput(path, formatter = .default.formatter)
 }
@@ -59,6 +59,7 @@ hinput(path, formatter = .default.formatter)
   \item{persistent}{logical, if \code{TRUE} then an ROctopus job is
     started and the mapper is executed in "hot" ROctopus instances
     instead of regular R. The results in that case are ROctopus URLs.}
+  \item{distributePackages}{logical, if \code{TRUE} then the packages specified in \code{packages} will be distributed to the compute nodes. }
   \item{path}{HDFS path}
 }
 \details{

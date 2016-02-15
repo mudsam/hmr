@@ -1,5 +1,5 @@
-hmr <- function(input, output, map=identity, reduce=identity, job.name, aux, formatter, packages=loadedNamespaces(), reducers,
-                remote, wait=TRUE, hadoop.conf, hadoop.opt, R="R", verbose=TRUE, persistent=FALSE) {
+hmr <- function(input, output, map=identity, reduce=identity, job.name, aux, formatter, packages, reducers,
+                remote, wait=TRUE, hadoop.conf, hadoop.opt, R="R", verbose=TRUE, persistent=FALSE, distributePackages=FALSE) {
   .rn <- function(n) paste(sprintf("%04x", as.integer(runif(n, 0, 65536))), collapse='')
   if (missing(output)) output <- hpath(sprintf("/tmp/io-hmr-temp-%d-%s", Sys.getpid(), .rn(4)))
   if (missing(job.name)) job.name <- sprintf("RCloud:iotools:hmr-%s", .rn(2))
@@ -34,13 +34,37 @@ hmr <- function(input, output, map=identity, reduce=identity, job.name, aux, for
   e$red.formatter <- red.formatter
   e$map <- map
   e$reduce <- reduce
-  e$load.packages <- packages
+  if (isTRUE(distributePackages)) {
+    if (missing(packages)) {
+      # Keep attached packages not in system libraries
+      sysPaths = unique(c(c(.Library, .Library.site), normalizePath(c(.Library, .Library.site))))
+      pkgPaths <- grep(paste0("^", sysPaths, collapse = "|"), searchpaths(), value = T ,invert = T)
+      pkgPaths <- grep(paste0("^.*", gsub("^package:", "", grep("^package:(.*)$", search(),  value = T)), "$", collapse = "|"),pkgPaths, value = T)
+    } else {
+      # Look for specified packages among all attached packages
+      pkgPaths <- grep(paste0("^.*", packages, "$", collapse = "|"), searchpaths(), value = T)
+    }
+    e$prefix.library.path <- c("./hmr_pkgs.zip", e$prefix.library.path)
+  }
+  e$load.packages <- if (missing(packages)) loadedNamespaces() else packages
   f <- tempfile("hmr-stream-dir")
   dir.create(f,, TRUE, "0700")
   owd <- getwd()
   on.exit(setwd(owd))
   setwd(f)
   save(list=ls(envir=e, all.names=TRUE), envir=e, file="stream.RData")
+  archives.opt <- if (isTRUE(distributePackages)) {
+    if (!file.exists(Sys.getenv("R_ZIPCMD", "zip"))) stop("Cannot find zip, set R_ZIPCMD to that path of the zip executable")
+    zipPath <- file.path(f, "hmr_pkgs.zip")
+    for (pkgPath in pkgPaths) {
+      setwd(dirname(pkgPath))
+      zip(zipPath, c(basename(pkgPath)), flags = "-rgq") # quiet recursive update
+    }
+    setwd(f)
+    paste("-archives", zipPath)
+  } else {
+    ""
+  }
   map.cmd <- if (isTRUE(persistent)) {
      paste0("-mapper \"",R," --slave --vanilla -e 'hmr:::run.ro()'\"")
   } else {
@@ -57,6 +81,7 @@ hmr <- function(input, output, map=identity, reduce=identity, job.name, aux, for
   }
 
   hargs <- paste(
+               archives.opt,
                "-D", "mapreduce.reduce.input.limit=-1",
                "-D", shQuote(paste0("mapred.job.name=", job.name)), extraD,
                paste("-input", shQuote(input), collapse=' '),
